@@ -13,11 +13,47 @@
             if (indexOfEndChar < 5) return null;
             return decoded.substring(indexOfStartString, indexOfEndChar);
         } catch (e) {
+            document.querySelector('#gemini-ticker').style.opacity = '0';
             return null;
         }
     };
     
     // ########## Forecast ##########
+    function getCurrentPosition() {
+        return new Promise((resolve, reject) => {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(resolve, reject);
+            } else {
+                reject(new Error("Geolocation is not supported by this browser."));
+            }
+        });
+    }
+
+    function getCityFromCoordinates(latitude, longitude) {
+        const apiUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=ja`;
+        return fetch(apiUrl)
+            .then(response => response.json())
+            .then(data => data.city)
+            .catch(error => {
+                console.error('Error fetching the city data:', error);
+                throw error;
+            });
+    }
+
+    async function getCity(position) {
+        try {
+            const latitude = position.coords.latitude;
+            const longitude = position.coords.longitude;
+            const city = await getCityFromCoordinates(latitude, longitude);
+            return city;
+        } catch (error) {
+            document.querySelector('#gemini-ticker').style.opacity = '0';
+            console.error('Error getting position or city:', error);
+            throw error;
+        }
+    }
+
+
     const insertForecastElement = async (forecastLink) => {
         if (forecastLink) {
             const forecast = document.createElement('div');
@@ -31,7 +67,16 @@
     const processForecast = async () => {
         const forecastLink = document.querySelector('a[href*="https://weathernews.jp/"]') || 
             document.querySelector('a[href*="https://weather.com/"]');
-        const geo = forecastLink.parentElement.firstChild.textContent || '全国' ;
+        if (!forecastLink) return;
+        const position = await getCurrentPosition();
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+        let geo = '全国' ;
+        try {
+            geo = await getCity(position);
+        } catch (error) {
+            geo = '全国' ;
+        }
         console.log(`forecast: ${geo}`)
         for (let attempt = 0; attempt < 3; attempt++) {
             try {
@@ -42,7 +87,12 @@
                     body: JSON.stringify({
                         contents: [{
                             parts: [{
-                                text: `${geo}の今後の天気について100字ほどで概要を教えて下さい。`
+                                text: `URLに対し、次の手順に従ってステップバイステップで実行してください。
+                            1 URLにアクセス出来なかった場合、結果を出力しない
+                            2 ${(new Date).toString()}の天気に関する情報を抽出
+                            3 どのように過ごすべきかを含め、200字程度に具体的に要約
+                            4 結果のみ出力
+                            ${geo}の情報: https://weathernews.jp/onebox/${latitude}/${longitude}/`
                             }],
                         }]
                     }),
@@ -61,6 +111,10 @@
 
                 const data = JSON.parse(result);
                 let summary = (data.candidates[0]?.content?.parts[0]?.text || '').replace(/\*\*/g, '').replace(/##/g, '');
+                if (summary.length < 80) {
+                    console.error('Summary is too short');
+                    return;
+                } 
                 console.log(`forecast: ${summary}`);
 
                 insertForecastElement(forecastLink);
@@ -82,6 +136,7 @@
                 targetElement.textContent = displayText;
                 return;
             } catch (error) {
+                document.querySelector('#gemini-ticker').style.opacity = '0';
                 await delay(5000);
                 console.error('Error:', error);
             }
@@ -174,6 +229,7 @@
                 targetElement.textContent = displayText;
                 return;
             } catch (error) {
+                document.querySelector('#gemini-ticker').style.opacity = '0';
                 await delay(5000);
                 console.error('Error:', error);
             }
@@ -238,6 +294,7 @@
             }
             targetElement.textContent = displayText;
         } catch (error) {
+            document.querySelector('#gemini-ticker').style.opacity = '0';
             await delay(5000);
             console.error('Error:', error);
         }
@@ -250,6 +307,7 @@
 
     // ########## Ticker ##########
     const insertTickerElement = () => {
+        if (document.querySelector('#gemini-ticker')) return;
         const ticker = document.createElement('div');
         ticker.id = 'gemini-ticker';
         ticker.style.position = 'fixed';
@@ -268,6 +326,7 @@
     insertTickerElement();
     for (let j = 0; j < 30 ; j++) {
         console.log(`######## attempt: ${j+1} ########`)
+        document.querySelector('#gemini-ticker').style.opacity = '1';
         const articles = Array.from(document.querySelectorAll('article'));
         
         if (!document.querySelector('#gemini-forecast')) {
@@ -311,6 +370,8 @@
         }
 
         document.querySelector('#gemini-ticker').style.opacity = '0';
+        await delay(1000);
     }
     document.querySelector('#gemini-ticker').style.opacity = '0';
+    console.log('######## Ended up all ########')
 })();
